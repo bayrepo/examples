@@ -1,0 +1,100 @@
+#! /usr/bin/env stap
+# http://blog.bayrepo.net/post/systemtap-chastj-3-napishem-svoj-probe
+
+global output_info = 0
+global filter_pid = 0
+global filter_sig = 0
+global filter_epid
+global counter_epid = 0
+
+probe begin {
+    printf("Signal analyzer started\n")
+    if (argc>0) {
+        for(index=0; index<argc; index++){
+            if (argv[index+1]=="long"){
+                output_info = 1
+            } else if (substr(argv[index+1],0,4)=="pid="){
+                str_len = strlen(argv[index+1])
+                nmb_str = substr(argv[index+1], 4, str_len)
+                filter_pid = strtol(nmb_str, 10)
+            } else if (substr(argv[index+1],0,4)=="sig="){
+                str_len = strlen(argv[index+1])
+                nmb_str = substr(argv[index+1], 4, str_len)
+                filter_sig = strtol(nmb_str, 10)
+            } else if (substr(argv[index+1],0,5)=="epid="){
+                str_len = strlen(argv[index+1])
+                nmb_str = substr(argv[index+1], 5, str_len)
+                filter_epid[counter_epid++] = strtol(nmb_str, 10)
+            } else {
+                filter_pid = strtol(argv[index+1], 10)
+            }
+        }
+    }
+    printf("Started with DEBUG %d, PID FILTER %d, SIG FILTER %d\n", output_info, filter_pid, filter_sig)
+    foreach(cnt in filter_epid){
+        printf("Excluded pid: %d\n", filter_epid[cnt])
+    }
+}
+
+probe end {
+    printf("Waiting for Ctrl-C for stop\n")
+}
+
+global si_cn
+global si_sn
+global si_sp
+global si_pp
+global si_pn
+global si_en
+global si_ppf
+global si_gc
+global si_ppf2
+global signal_counter = 0
+
+probe signal.send {
+    found_excluded_pid = 0
+    foreach(cnt in filter_epid){
+        if (pid()==filter_epid[cnt]){
+            found_excluded_pid = 1
+            break
+        }
+    }
+    if (found_excluded_pid == 0) {
+        if (filter_pid == 0 || ((filter_pid != 0) && (pid() == filter_pid))){
+            if (filter_sig == 0 || ((filter_sig != 0) && (sig == filter_sig))){
+                sc = signal_counter++
+                si_cn[sig_pid, sig, sc]=sc
+                si_sn[sc] = sig_name
+                si_sp[sc] = sig_pid
+                si_pp[sc] = pid()
+                si_pn[sc] = pid_name
+                si_en[sc] = execname()
+                si_ppf[sc] = ppfunc()
+                si_ppf2[sc] = sprint_ubacktrace()
+                si_gc[sc] = gettimeofday_ns()
+            }
+        }
+    }
+}
+
+probe signal.handle {
+   foreach([f_pid, sig_f, sc] in si_cn){
+       if ((pid() == f_pid) && (sig == sig_f)) {
+           printf("[%d] Signal %s was send by %s/%d to %s/%d\n", 
+                   si_pp[sc], si_sn[sc], si_en[sc], si_pp[sc],
+                   execname(), pid())
+            if (output_info == 1){
+                printf("--------------+\n")
+                printf("              +\n")
+                printf("       %s------>%s\n", si_ppf[sc], si_ppf2[sc])
+            }
+            printf("[%d]      Received the signal %s by %d and time %d/1000000000\n", pid(), si_sn[sc], pid(), gettimeofday_ns()-si_gc[sc])
+            if (output_info == 1){
+                printf("------------------+\n")
+                printf("                  +\n")
+                printf("           %s------>%s\n", ppfunc(), sprint_ubacktrace())
+            }
+        }
+    }
+}
+
