@@ -1,0 +1,109 @@
+#! /usr/bin/env stap
+# light weight ltrace analog.
+# description: http://blog.bayrepo.net/post/systemtap-chastj-4-uproshennaya-versiya-ltrace-svoimi-rukami
+
+global depth
+global names
+global skip
+global addres_cached
+global extended = 0
+global counter = 1
+
+function is_current_function(name){
+    fn = sprintf("%s", ppfunc())
+    if (fn == name) {
+        return 0
+    }
+    return 1
+}
+
+function local_depth() {
+    ind = ""
+    for (i=depth[tid()];i>=0;i--){
+        ind = sprintf("%s|", ind)
+    }
+    ind = ind . ">"
+    return ind
+}
+
+function get_debug_info(){
+    if (extended == 0) return ""
+    address = addr()
+    if (!@defined(addres_cached[address])) {
+        addres_cached[address] = usymfileline(address)
+    }
+    return addres_cached[address]
+}
+
+function out_info(func_name, vars_list, fid) {
+    dbg = get_debug_info()
+    if (dbg != "") {
+        dbg = " >>>".dbg
+    }
+    printf("%s(%10d) uid(%5d):%s%s[%d](%s) %s%s\n", func_name, tid(), uid(), local_depth(), ppfunc(), fid, execname(), vars_list, dbg)
+}
+
+function out_info_return(func_name, vars_list, fid) {
+    printf("%s(%10d) uid(%5d):|%s%s[%d](%s) ret +----> %s\n", func_name, tid(), uid(), local_depth(), ppfunc(), fid, execname(), vars_list)
+}
+
+function work_depth_push(){
+    #fn = sprintf("%s", ppfunc())
+    foreach (val in skip){
+        if(is_current_function(skip[val])==0) return 0
+    }
+    s_tid = tid()
+    if (!@defined( depth[s_tid])) {
+        depth[s_tid] = 0
+    }
+    cnt = counter++
+    names[s_tid, depth[s_tid]++] = cnt
+    return cnt
+}
+
+function work_depth_pop(){
+    foreach (val in skip){
+        if(is_current_function(skip[val])==0) return 0
+    }
+    s_tid = tid()
+    if (!@defined( depth[s_tid])) {
+        depth[s_tid] = 0
+    }
+    cnt = 0
+    if (depth[s_tid] > 0 ) {
+        cnt = names[s_tid, depth[s_tid]-1]
+        delete names[s_tid, --depth[s_tid]]
+    }
+    return cnt
+}
+
+probe process("*").function("*").call {
+    fid = work_depth_push()
+    if (fid==0) next
+    vrs = sprintf("%s", $$vars)
+    ap_name = sprintf("%7s", execname())
+    out_info(ap_name, vrs, fid)
+}
+
+probe process("*").function("*").return {
+    fid = work_depth_pop()
+    if (fid==0) next
+    vrs = sprintf("%s", $$return)
+    ap_name = sprintf("%7s", execname())
+    out_info_return(ap_name, vrs, fid)
+}
+
+probe begin {
+    skip[0] = "ap_get_scoreboard_process"
+    skip[1] = "ap_get_scoreboard_worker_from_indexes"
+    printf("Function tracer\n")
+    if (argc>0) {
+        for(index=0; index<argc; index++){
+            if (argv[index+1]=="ext=on"){
+                extended = 1
+            }
+        }
+    }
+
+    printf("Waiting for even or Ctrl+C\n")
+}
