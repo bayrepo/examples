@@ -1,5 +1,5 @@
 # examples
-Scripts examples for blog http://blog.bayrepo.net/ and wiki http://bayrepo.net/
+Scripts examples for blog http://putey.net/ and wiki http://docs.putey.net/
 
 Description:
-signals_checker.stp - http://blog.bayrepo.net/post/systemtap-chastj-3-napishem-svoj-probe
+signals_checker.stp - http://putey.net/post/systemtap-chastj-3-napishem-svoj-probe
